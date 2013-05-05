@@ -1,0 +1,6 @@
+1. KNBC => JUMAN (KNBJ) を作る / KC を JUMAN で解析 (KCJ)
+2. KNBJ/KCJ を KNP で解析 (KNB_/KC_)
+3. KNBC/KC と KNB_/KC_ で文節区切りが一致する文の集合 KNBC' を抽出
+4. KNBC に KNP の結果を注釈付け
+5. KNBC' を 学習とテストに分ける
+6. 学習→テスト; 評価
