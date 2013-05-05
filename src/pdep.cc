@@ -452,6 +452,10 @@ namespace pdep {
   void parser::_analyze () {
     setSentence ();
     size_t n = 0;
+    char in_fname[MAX_FILENAME_SIZE];
+    char out_fname[MAX_FILENAME_SIZE];
+    char meta_fname[MAX_FILENAME_SIZE];
+
     if (MODE == PARSE)
       std::fprintf (stderr, "(input: STDIN [-I %d])\n", _opt.input);
 #ifdef USE_AS_STANDALONE
@@ -491,106 +495,169 @@ namespace pdep {
 #endif
       static const char * mode[] = { "learn", "parse", "both", "cache" };
       int fd = 0; // stdin
-      if (MODE != PARSE) {
-        if ((fd = open (_opt.train, O_RDONLY)) == -1)
-          ny::print_err (HERE "no such file: %s\n", _opt.train);
-        std::string model (_opt.model_dir + "/" + input0[_opt.input]);
-        if (_opt.input == DEPND) {
-          char sigparse[16]; std::sprintf (sigparse, ".p%d", _opt.parser);
-          model += sigparse;
-        }
-        if (MODE == LEARN) {
-          const std::string train (model + ".train");
-          _writer = std::fopen (train.c_str (), "wb");
+      int iteration = 0;
+
+      while(iteration++ == 0 && (_opt.batchmode == false ||
+            std::fgets(in_fname, MAX_FILENAME_SIZE, stdin))) {
+
+        FILE *in_fp;
+        if(_opt.batchmode) {
+          char *ppp = std::strchr(in_fname, '\n');
+          if(ppp) *ppp = '\0';
+          in_fp = std::fopen(in_fname, "r");
+  
+          std::fgets(out_fname, MAX_FILENAME_SIZE, stdin);
+          ppp = std::strchr(out_fname, '\n');
+          if(ppp) *ppp = '\0';
+          _s->out_fp = std::fopen(out_fname, "w");
+  
+          std::fgets(meta_fname, MAX_FILENAME_SIZE, stdin);
+          ppp = std::strchr(meta_fname, '\n');
+          if(ppp) *ppp = '\0';
+
         } else {
-          std::string event (model + ".event");
-#ifdef USE_MODEL_SUFFIX
-          if (_opt.learner == SVM)
-            event += std::string (".s") + _pecco_opt.sigma;
-#endif
-          _writer = std::fopen (event.c_str (), "wb");
+          in_fp = stdin;
+          _s->out_fp = stdout;
         }
-      }
-      const bool output = _opt.input == RAW ||
-                          (MODE == PARSE && _opt.verbose == -1);
-      char buf[IOBUF_SIZE];
-      char * q (&buf[0]), * q_end (&buf[0] + IOBUF_SIZE);
-      ssize_t avail = 0;
-      std::vector <char *> pos;
-      while (1) {
-        TIMER (if (MODE != LEARN) _io_t->startTimer ());
-        const bool input_ok
-          = (avail = read (fd, q, static_cast <size_t> (q_end - q))) > 0;
-        TIMER (if (MODE != LEARN) _io_t->stopTimer ());
-        if (! input_ok) break;
-        q_end = q + avail;
-        q = &buf[0];
-        while (1) {
-          TIMER (if (MODE != LEARN) _io_t->startTimer ());
-          // read input
-          pos.clear ();
-          for (char * r = q; r + 3 < q_end; ++r) {
-            pos.push_back (r);
-            if (*r == 'E') { q = r + 4; break; }  // find EOS\n
-            while (r != q_end && *r != '\n') ++r; // next line
+
+        if(_s->out_fp) {
+
+          if (MODE != PARSE) {
+            if ((fd = open (_opt.train, O_RDONLY)) == -1)
+              ny::print_err (HERE "no such file: %s\n", _opt.train);
+            std::string model (_opt.model_dir + "/" + input0[_opt.input]);
+            if (_opt.input == DEPND) {
+              char sigparse[16]; std::sprintf (sigparse, ".p%d", _opt.parser);
+              model += sigparse;
+            }
+            if (MODE == LEARN) {
+              const std::string train (model + ".train");
+              _writer = std::fopen (train.c_str (), "wb");
+            } else {
+              std::string event (model + ".event");
+    #ifdef USE_MODEL_SUFFIX
+              if (_opt.learner == SVM)
+                event += std::string (".s") + _pecco_opt.sigma;
+    #endif
+              _writer = std::fopen (event.c_str (), "wb");
+            }
           }
-          if (pos.empty () || *pos.back () != 'E') { // premature input
-            std::memmove (&buf[0], q, static_cast <size_t> (q_end - q));
-            q     = &buf[0] + (q_end - q);
-            q_end = &buf[0] + IOBUF_SIZE;
-            break;
-          }
-          TIMER (if (MODE != LEARN) _io_t->stopTimer ());
-          // process
-          TIMER (if (MODE != LEARN) _preproc_t->startTimer ());
-          _s->clear ();
-          ++n;
-          if (_opt.input == RAW) {
-            char header[1024];
-            size_t header_len
-              = static_cast <size_t> (std::sprintf (header, "# S-ID: %ld; J.DepP\n", n));
-            _s->setHeader (header, header_len);
-          }
-          bool flag = false; // reference chunk annotation
-          for (size_t i = 0; i < pos.size () - 1; ++i) {
-            char * line = pos[i];
-            const size_t read = static_cast <size_t> (pos[i + 1] - pos[i]);
-            if (_opt.input == RAW) _s->addMorph (line, read - 1, _dict);
-            else
-              switch (*line) {
-                case '#': if (output) _s->setHeader (line, read); break;
-                case '*':
-                  if (_opt.input == DEPND)
-                    _s->addBunsetsu (line, read - 1, _s->mlen);
-                  else
-                    flag = true;
-                  break;
-                default:
-                  _s->addMorph (line, read - 1, _dict, flag);
-                  flag = false;
+          const bool output = _opt.input == RAW ||
+                              (MODE == PARSE && _opt.verbose == -1);
+          char buf[IOBUF_SIZE];
+          char * q (&buf[0]), * q_end (&buf[0] + IOBUF_SIZE);
+          ssize_t avail = 0;
+          std::vector <char *> pos;
+          while (1) {
+            TIMER (if (MODE != LEARN) _io_t->startTimer ());
+            bool input_ok;
+
+            if(in_fp == stdin) {
+              input_ok =
+                (avail = read(fd, q, static_cast <size_t> (q_end - q))) > 0;
+            } else {
+              input_ok =
+                (avail = fread(q, 1, static_cast <size_t> (q_end - q), in_fp)) > 0;
+            }
+
+            TIMER (if (MODE != LEARN) _io_t->stopTimer ());
+            if (! input_ok) break;
+            q_end = q + avail;
+            q = &buf[0];
+            while (1) {
+              TIMER (if (MODE != LEARN) _io_t->startTimer ());
+              // read input
+              pos.clear ();
+              for (char * r = q; r + 3 < q_end; ++r) {
+                pos.push_back (r);
+                if (*r == 'E' && (*(r+1) == 'O') && (*(r+2) == 'S') &&
+                    (*(r+3) == '\n')) {
+                  q = r + 4;
+                  break;  // find EOS\n
+                }
+                while (r != q_end && *r != '\n') ++r; // next line
               }
+              if (pos.empty () || *pos.back () != 'E') { // premature input
+                std::memmove (&buf[0], q, static_cast <size_t> (q_end - q));
+                q     = &buf[0] + (q_end - q);
+                q_end = &buf[0] + IOBUF_SIZE;
+                break;
+              }
+              TIMER (if (MODE != LEARN) _io_t->stopTimer ());
+              // process
+              TIMER (if (MODE != LEARN) _preproc_t->startTimer ());
+              _s->clear ();
+              ++n;
+              if (_opt.input == RAW) {
+                char header[1024];
+                size_t header_len
+                  = static_cast <size_t> (std::sprintf (header, "# S-ID: %ld; J.DepP\n", n));
+                _s->setHeader (header, header_len);
+              }
+              bool flag = false; // reference chunk annotation
+              for (size_t i = 0; i < pos.size () - 1; ++i) {
+                char * line = pos[i];
+                const size_t read = static_cast <size_t> (pos[i + 1] - pos[i]);
+                if (_opt.input == RAW) _s->addMorph (line, read - 1, _dict);
+                else
+                  switch (*line) {
+                    case '#': if (output) _s->setHeader (line, read); break;
+                    case '*':
+                      if (_opt.input == DEPND)
+                        _s->addBunsetsu (line, read - 1, _s->mlen);
+                      else
+                        flag = true;
+                      break;
+                    default:
+                      _s->addMorph (line, read - 1, _dict, flag);
+                      flag = false;
+                  }
+              }
+              TIMER (if (MODE != LEARN) _preproc_t->stopTimer ());
+              if (_opt.input != DEPND) _chunk <MODE> ();
+              _s->setup (_dict); // bug?
+              if (_opt.input != CHUNK) _parse <MODE> ();
+              TIMER (if (MODE != LEARN) _io_t->startTimer ());
+              if (output) _s->print (_opt.input);
+              TIMER (if (MODE != LEARN) _io_t->stopTimer ());
+              if (MODE != PARSE && n % 1000 == 0)
+                std::fprintf (stderr, "\r%s: %ld sent. processed", mode[MODE], n);
+              if (MODE != PARSE && _opt.max_sent && n >= _opt.max_sent)
+                { lseek (fd, 0, SEEK_END); break; } // go to the end
+            }
           }
-          TIMER (if (MODE != LEARN) _preproc_t->stopTimer ());
-          if (_opt.input != DEPND) _chunk <MODE> ();
-          _s->setup (_dict); // bug?
-          if (_opt.input != CHUNK) _parse <MODE> ();
-          TIMER (if (MODE != LEARN) _io_t->startTimer ());
-          if (output) _s->print (_opt.input);
-          TIMER (if (MODE != LEARN) _io_t->stopTimer ());
-          if (MODE != PARSE && n % 1000 == 0)
-            std::fprintf (stderr, "\r%s: %ld sent. processed", mode[MODE], n);
-          if (MODE != PARSE && _opt.max_sent && n >= _opt.max_sent)
-            { lseek (fd, 0, SEEK_END); break; } // go to the end
+
+          if(_opt.batchmode == false)
+            close (fd);
+
+          if (avail == 0 && q == q_end)
+            ny::print_err ("set a larger value to IOBUF_SIZE.\n");
+          if (MODE != PARSE) {
+            std::fprintf (stderr, "\r%s: %ld sent. processed.", mode[MODE], n);
+            std::fclose (_writer);
+          }
+          std::fprintf (stderr, "\n");
+
+          if(_opt.batchmode && in_fp)
+            std::fclose(in_fp);
+
+          if(_opt.batchmode) {
+            iteration = 0;
+            FILE *meta_fp = std::fopen(meta_fname, "w");
+            if(meta_fp) {
+              std::fprintf(meta_fp, "OK\n");
+              std::fclose(meta_fp);
+            }
+            std::fclose(_s->out_fp);
+          }
+        } else if(_opt.batchmode) {
+          FILE *meta_fp = std::fopen(meta_fname, "w");
+          if(meta_fp) {
+            std::fprintf(meta_fp, "ERROR\n");
+            std::fclose(meta_fp);
+          }
         }
       }
-      close (fd);
-      if (avail == 0 && q == q_end)
-        ny::print_err ("set a larger value to IOBUF_SIZE.\n");
-      if (MODE != PARSE) {
-        std::fprintf (stderr, "\r%s: %ld sent. processed.", mode[MODE], n);
-        std::fclose (_writer);
-      }
-      std::fprintf (stderr, "\n");
 #ifdef USE_AS_STANDALONE
     }
 #endif

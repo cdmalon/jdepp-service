@@ -13,6 +13,8 @@
 #include <stack>
 #include <list>
 
+#define MAX_FILENAME_SIZE 500
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -139,9 +141,9 @@ test    test file\n\
 \n"
 
 #ifdef USE_AS_STANDALONE
-static const  char * jdepp_short_options = "t:e:c:m:p:I:b:l:n:d:x:v:h";
+static const  char * jdepp_short_options = "t:e:c:m:p:I:b:l:n:d:x:v:h:F";
 #else
-static const  char * jdepp_short_options = "t:e:c:m:p:I:b:l:n:x:v:h";
+static const  char * jdepp_short_options = "t:e:c:m:p:I:b:l:n:x:v:h:F";
 #endif
 static struct option jdepp_long_options[] = {
   {"type",         required_argument, NULL, 't'},
@@ -159,6 +161,7 @@ static struct option jdepp_long_options[] = {
   {"xcode",        required_argument, NULL, 'x'},
   {"verbose",      required_argument, NULL, 'v'},
   {"help",         no_argument,       NULL, 'h'},
+  {"filelist",     no_argument,       NULL, 'F'},
   {NULL, 0, NULL, 0}
 };
 
@@ -249,6 +252,7 @@ namespace pdep {
     bool      utf8;
     ny::uint  cbits;
     ny::uint  clen;
+    bool      batchmode;
     learner_t learner;
     ny::uint  max_sent;
     input_t   input;
@@ -271,7 +275,7 @@ namespace pdep {
 #else
       model_dir (JDEPP_DEFAULT_MODEL),
 #endif
-      mode (PARSE), parser (LINEAR), utf8 (true), cbits (0), clen (0),
+      mode (PARSE), parser (LINEAR), utf8 (true), cbits (0), clen (0), batchmode (false),
 #if   defined (USE_OPAL)
       learner (OPAL),
 #elif defined (USE_SVM)
@@ -299,6 +303,7 @@ namespace pdep {
           case 'm': model_dir = optarg; break;
           case 'p': parser    = strton <parser_t>  (optarg, &err); break;
           case 'I': input     = strton <input_t>   (optarg, &err); break;
+          case 'F': batchmode = true; break;
           case 'b':
             do {
               const ny::uint depth = strton <ny::uint> (optarg, &optarg);
@@ -602,6 +607,7 @@ namespace pdep {
     char       _res[IOBUF_SIZE]; // save output
     char*      _ptr;             // current position in result buffer
   public:
+    FILE*      out_fp;
     Bunsetsu * bun;
     Morph    * morph;
     ny::uint   blen;
@@ -684,7 +690,7 @@ namespace pdep {
         std::memcpy (_ptr, "EOS\n", 4); _ptr += 4;
         char * check = &_res[0];
         while (check < _ptr)
-          check += write (1, check, static_cast <size_t> (_ptr - check));
+          check += fwrite (check, 1, static_cast <size_t> (_ptr - check), out_fp);
       }
       _ptr = &_res[0];
     }
